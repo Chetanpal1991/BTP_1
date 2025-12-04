@@ -14,7 +14,7 @@ obstacle_manager = ObstacleMapManager(
 
 obstacles = set(obstacle_manager.get_obstacles())
 
-initial , final = 0, 54
+initial , final = 20, 36
 
 # ----- ROBOT SETUP -----
 Robo1 = custom_algo(robot_id='R_1', start=(initial, initial), goal=(final, final), obstacles=obstacles)

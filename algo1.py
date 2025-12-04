@@ -185,6 +185,8 @@ class custom_algo:
         rep_radius = 4.0
         k_rep = 50.0
 
+        higher_robots = {}
+
         for ox, oy in obstacles:
             obs = np.array([ox, oy], dtype=float)
             dvec = pos - obs
@@ -199,6 +201,9 @@ class custom_algo:
                 continue
             if priority_dict[rname] < self.priority:
                 continue
+            higher_robots[rname] = list_of_robots_in_avoidance_range[rname]
+
+        for rname,rpos in higher_robots.items():
             rx, ry = rpos
             rob = np.array([rx, ry], dtype=float)
             dvec = pos - rob
@@ -241,111 +246,4 @@ class custom_algo:
             return True
         else:
              return False
-        
-
-    def simple_orca(self, pos, goal, obstacles,
-                           list_of_robots_in_avoidance_range: dict = {},
-                           priority_dict: dict = {}):
-        """
-        ORCA-Lite (discrete) collision avoidance with priority bias.
-        Returns next grid position.
-        """
-        neighbours = self.get_neighbors_for_APF(
-            pos, obstacles, grid_size=55,
-            list_of_robots_in_avoidance_range=list_of_robots_in_avoidance_range
-        )
-
-        if not neighbours:
-            print(f"No available positions for {self.robot_id}!")
-            return pos
-            
-
-        pos = np.array(pos, dtype=float)
-        goal = np.array(goal, dtype=float)
-
-        # preferred direction toward goal
-        v_pref = goal - pos
-        if np.linalg.norm(v_pref) > 1e-6:
-            v_pref = v_pref / np.linalg.norm(v_pref)
-        else:
-            v_pref = np.zeros(2)
-
-        # ORCA half-plane constraints
-        constraints = []
-
-        for rname, rpos in list_of_robots_in_avoidance_range.items():
-            rpos = np.array(rpos, dtype=float)
-            p_rel = rpos - pos
-            dist = np.linalg.norm(p_rel)
-            if dist < 1e-6:
-                continue
-
-            # unit direction toward the other robot
-            n = p_rel / dist
-
-            # priority handling
-            # higher priority robot = you must get out of the way more
-            if priority_dict.get(rname, 0) > self.priority:
-                weight = 1.0     # strong constraint
-            else:
-                weight = 0.3     # soft constraint
-
-            # ORCA: allowed velocities must lie on the "safe" side
-            point = -n * weight   # push opposite to the robot
-            constraints.append((n, point))
-
-        # If no robots → go straight toward goal
-        if not constraints:
-            # pick nearest neighbour in direction v_pref
-            best = None
-            best_score = float("inf")
-            for nb in neighbours:
-                direction = np.array(nb) - pos
-                direction = direction / (np.linalg.norm(direction) + 1e-6)
-                score = np.linalg.norm(direction - v_pref)
-                if score < best_score:
-                    best_score = score
-                    best = nb
-            print(f"No constraints for {self.robot_id}, going straight to goal")
-            return best
-            
-
-        # Evaluate each neighbour under ORCA constraints
-        best_nb = None
-        best_score = float("inf")
-
-        for nb in neighbours:
-            v_nb = np.array(nb) - pos
-            if np.linalg.norm(v_nb) > 1e-6:
-                v_nb = v_nb / np.linalg.norm(v_nb)
-
-            feasible = True
-            violation_amount = 0.0
-
-            for n, p in constraints:
-                # ORCA half-plane: (v - p) · n >= 0
-                val = np.dot(v_nb - p, n)
-                if val < 0:
-                    feasible = False
-                    violation_amount += abs(val)
-
-            # Prefer feasible neighbours
-            if feasible:
-                score = np.linalg.norm(v_nb - v_pref)
-            else:
-                # penalize constraint violations
-                score = 1000 + violation_amount
-
-            if score < best_score:
-                best_score = score
-                best_nb = nb
-
-        # fallback
-        if best_nb is None:
-            print(f"No feasible neighbours found for {self.robot_id}, staying in place")
-            return pos
-        print(f"Best neighbour found for {self.robot_id} at:", best_nb)
-        return best_nb
-
-                
         
