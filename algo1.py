@@ -28,6 +28,7 @@ class custom_algo:
         self.goal = goal
         self.was_blocked = False
         self.reached_goal = False
+        self.in_narrow_path = False
         self.priority = 0
         self.set_priority(robot_id)
 
@@ -101,7 +102,7 @@ class custom_algo:
                         return False
         return True
     
-    def get_neighbors_for_APF(self, pos, obstacles, grid_size, list_of_robots_in_avoidance_range : dict = {}):
+    def get_neighbors_for_APF(self, pos, obstacles, grid_size, priority_dict, list_of_robots_in_avoidance_range : dict = {}):
         x, y = pos
         neighbors = []
 
@@ -159,20 +160,13 @@ class custom_algo:
 
     def simple_apf_choose_next(self, pos, goal, obstacles, list_of_robots_in_avoidance_range : dict = {}, priority_dict : dict = {}):
         """
-        pos: (x, y) current robot position
-        goal: (x, y) goal position
-        obstacles: list of (x, y) obstacle positions
-        neighbours: list of (x, y) available neighbor positions
-
-        returns: (x, y) selected neighbour
-
+        Higher priority robots ignore lower priority ones (no repulsion)
+        Lower priority robots avoid ALL other robots
         """
-        neighbours = self.get_neighbors_for_APF(pos, obstacles, grid_size=55 ,list_of_robots_in_avoidance_range=list_of_robots_in_avoidance_range)
-
-        
+        neighbours = self.get_neighbors_for_APF(pos, obstacles, grid_size=55 ,list_of_robots_in_avoidance_range=list_of_robots_in_avoidance_range, priority_dict=priority_dict)
 
         if neighbours == []:
-            return pos  # no available move so stay in place
+            return pos
 
         pos = np.array(pos, dtype=float)
         goal = np.array(goal, dtype=float)
@@ -180,39 +174,37 @@ class custom_algo:
         # Attractive force: simple linear pull
         F_att = (goal - pos)
 
-        # Repulsive force: very basic: sum of inverse distance squared
+        # Repulsive force
         F_rep = np.zeros(2, dtype=float)
         rep_radius = 4.0
         k_rep = 50.0
 
-        higher_robots = {}
+        # # Always repel from static obstacles
+        # for ox, oy in obstacles:
+        #     obs = np.array([ox, oy], dtype=float)
+        #     dvec = pos - obs
+        #     dist = np.linalg.norm(dvec)
+        #     if dist < 1e-6:
+        #         continue
+        #     if dist <= rep_radius:
+        #         F_rep += k_rep * (1.0 / (dist**2)) * (dvec / dist)
 
-        for ox, oy in obstacles:
-            obs = np.array([ox, oy], dtype=float)
-            dvec = pos - obs
-            dist = np.linalg.norm(dvec)
-            if dist < 1e-6:
-                continue
-            if dist <= rep_radius:
-                F_rep += k_rep * (1.0 / (dist**2)) * (dvec / dist)
-
-        for rname,rpos in list_of_robots_in_avoidance_range.items():
-            if rname == self.robot_id:
-                continue
-            if priority_dict[rname] < self.priority:
-                continue
-            higher_robots[rname] = list_of_robots_in_avoidance_range[rname]
-
-        for rname,rpos in higher_robots.items():
-            rx, ry = rpos
+        # Find the highest priority robot in avoidance range (excluding self)
+        robots_to_consider = {rname: rpos for rname, rpos in list_of_robots_in_avoidance_range.items() 
+                            if rname != self.robot_id and priority_dict.get(rname, 0) >= self.priority}
+    
+            
+        if robots_to_consider:
+        # Get the robot with HIGHEST priority (maximum value)
+            highest_priority_robot = max(robots_to_consider.keys(), key=lambda r: priority_dict[r])
+            
+            # Only apply repulsion from this ONE robot
+            rx, ry = robots_to_consider[highest_priority_robot]
             rob = np.array([rx, ry], dtype=float)
             dvec = pos - rob
             dist = np.linalg.norm(dvec)
-            if dist < 1e-6:
-                continue
-            if dist <= rep_radius:
+            if dist >= 1e-6 and dist <= rep_radius:
                 F_rep += k_rep * (1.0 / (dist**2)) * (dvec / dist)
-
 
         # Total force
         F = F_att + F_rep
@@ -230,7 +222,6 @@ class custom_algo:
 
         # If that neighbor is not available, fallback to nearest available one
         if final_pos not in neighbours:
-            # Choose from neighbours: which one’s direction is closest?
             def angle_to(npos):
                 vec = np.array(npos) - pos
                 return math.degrees(math.atan2(vec[1], vec[0]))
@@ -247,3 +238,62 @@ class custom_algo:
         else:
              return False
         
+    def narrow_path_detector(self, name, current_pos, next_pos, grid_size=55):
+        """
+        Detects if the robot is entering a narrow one-way passage.
+        
+        Args:
+            name: Robot name (for debugging/logging)
+            current_pos: (x, y) current position
+            next_pos: (x, y) next intended position
+            grid_size: Grid dimensions (default 55)
+        
+        Returns:
+            bool: True if entering narrow passage, False otherwise
+        """
+        curr_x, curr_y = current_pos
+        next_x, next_y = next_pos
+        
+        # Calculate movement direction
+        dx = next_x - curr_x
+        dy = next_y - curr_y
+        
+        # Helper function to check if a cell is blocked
+        def is_blocked(x, y):
+            """Cell is blocked if out of bounds OR is an obstacle."""
+            # Out of bounds check
+            if not (0 <= x < grid_size and 0 <= y < grid_size):
+                return True
+            # Obstacle check
+            if (x, y) in self.obstacles:
+                return True
+            return False
+        
+        
+        
+        # ========================================
+        # CASE 1: HORIZONTAL MOVEMENT (dy == 0)
+        # ========================================
+        if dx != 0 and dy == 0:
+            # Check cells above and below destination
+            above = (next_x, next_y + 1)
+            below = (next_x, next_y - 1)
+            
+            if is_blocked(above[0], above[1]) and is_blocked(below[0], below[1]):
+                return True
+        
+        # ========================================
+        # CASE 2: VERTICAL MOVEMENT (dx == 0)
+        # ========================================
+        elif dx == 0 and dy != 0:
+            # Check cells left and right of destination
+            left = (next_x - 1, next_y)
+            right = (next_x + 1, next_y)
+            
+            if is_blocked(left[0], left[1]) and is_blocked(right[0], right[1]):
+                return True
+        
+        # No narrow path detected
+        return False
+
+            
