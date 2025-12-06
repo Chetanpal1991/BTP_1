@@ -14,7 +14,7 @@ obstacle_manager = ObstacleMapManager(
 
 obstacles = set(obstacle_manager.get_obstacles())
 
-initial , final = 20, 36
+initial , final = 13, 35
 
 # ----- ROBOT SETUP -----
 Robo1 = custom_algo(robot_id='R_1', start=(initial, initial), goal=(final, final), obstacles=obstacles)
@@ -242,6 +242,39 @@ def update(frame):
         print(f"{name} moved to {current_pos}")
         return current_pos
     
+    # def robot_func(name):
+    #     if frame >0:
+    #         Robot_details[name]["Current_position"] = move_robot(                           #Move robot to new position
+    #             name,
+    #             actual_paths[name], 
+    #             Robot_details[name]["Current_position"], 
+    #             {'R_1': r1, 'R_2': r2, 'R_3': r3}[name], 
+    #             {'R_1': label1, 'R_2': label2, 'R_3': label3}[name], 
+    #             {'R_1': trail1_x, 'R_2': trail2_x, 'R_3': trail3_x}[name], 
+    #             {'R_1': trail1_y, 'R_2': trail2_y, 'R_3': trail3_y}[name],
+    #         )
+    #         {'R_1': trail1, 'R_2': trail2, 'R_3': trail3}[name].set_data(               #Update trail
+    #             {'R_1': trail1_x, 'R_2': trail2_x, 'R_3': trail3_x}[name], 
+    #             {'R_1': trail1_y, 'R_2': trail2_y, 'R_3': trail3_y}[name],
+    #         )
+
+    #         robots_in_visible_range = check_visible(
+    #             name,
+    #             Robot_details[name]["Current_position"], 
+    #             {k: v for k, v in pos_all.items() if k != name}
+    #         )
+
+    #         robots_in_avoidance_range = check_adjacent(
+    #             name,
+    #             Robot_details[name]["Current_position"], 
+    #             {k: v for k, v in pos_all.items() if k != name}
+    #         )
+    #         algo_switch(
+    #             name,
+    #             Robot_details[name]["Current_position"], 
+    #             robots_in_avoidance_range,
+    #             priority_dict
+    #         )
     
     if frame > 0:
         Robot_details[Robo1.robot_id]["Current_position"] = move_robot(
@@ -340,9 +373,14 @@ def update(frame):
     algo_switch(
         Robo3.robot_id, 
         Robot_details[Robo3.robot_id]["Current_position"], 
+
         robots_in_avoidance_range_of_R_3, 
         priority_dict
     )
+
+    # robot_func(Robo1.robot_id)
+    # robot_func(Robo2.robot_id)
+    # robot_func(Robo3.robot_id)
 
     for name1 in list(Robot_details.keys()):
         for name2 in list(Robot_details.keys()):

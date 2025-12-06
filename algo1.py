@@ -191,7 +191,7 @@ class custom_algo:
 
         # Find the highest priority robot in avoidance range (excluding self)
         robots_to_consider = {rname: rpos for rname, rpos in list_of_robots_in_avoidance_range.items() 
-                            if rname != self.robot_id and priority_dict.get(rname, 0) >= self.priority}
+                            if priority_dict.get(rname, 0) > self.priority}
     
             
         if robots_to_consider:
