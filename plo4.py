@@ -170,16 +170,15 @@ priority_dict = {
 }
 
 frame_counter = 0
+last_processed_frame = -1
 
 def update(frame):
-    global current_r1, current_r2, current_r3
+    global last_processed_frame
     print(f"Frame: {frame}")
     print("*"*25)
 
-
-    def move_robot(name,path, current_pos, rect, label, trail_x, trail_y):        
-        
-        x, y = path[frame]
+    def move_robot(name, path, current_pos, rect, label, trail_x, trail_y):        
+        x, y = path[-1]
         current_pos = (x, y)
 
         rect.set_xy((x, y))
@@ -194,43 +193,163 @@ def update(frame):
         print(f"{name} moved to {current_pos}")
         return current_pos
     
+    if frame <= last_processed_frame:
+        return r1, r2, r3, label1, label2, label3, trail1, trail2, trail3
     
-    if frame > 0:
-        Robot_details[Robo1.robot_id]["Current_position"] = move_robot(
-            Robo1.robot_id,
-            Robo1.global_path, 
-            Robot_details[Robo1.robot_id]["Current_position"], 
-            r1, label1, trail1_x, trail1_y,
-            # Robot_details[Robo1.robot_id]["actual_path_frame_counter"]
+    last_processed_frame = frame
+
+    # STEP 1: COMPUTE NEXT POSITIONS (before moving)
+    
+    # Check R1's narrow path status
+    if frame + 1 < len(Robot_details[Robo1.robot_id]["Robot_path"]):
+        Robo1.narrow_path_detector(
+            Robo1.robot_id, 
+            Robot_details[Robo1.robot_id]["Robot_path"][frame],
+            Robot_details[Robo1.robot_id]["Robot_path"][frame+1]
         )
-        Robot_details[Robo2.robot_id]["Current_position"] = move_robot(
-            Robo2.robot_id,
-            Robo2.global_path, 
-            Robot_details[Robo2.robot_id]["Current_position"], 
-            r2, label2, trail2_x, trail2_y,
-            # Robot_details[Robo2.robot_id]["actual_path_frame_counter"]
+    
+    # Check if R1 needs to modify next position
+    list_of_robots_in_visible_range_R1 = check_visible(
+        Robo1.robot_id, 
+        Robot_details[Robo1.robot_id]["Current_position"], 
+        {
+            Robo2.robot_id: Robot_details[Robo2.robot_id]["Current_position"],
+            Robo3.robot_id: Robot_details[Robo3.robot_id]["Current_position"]
+        }
+    )
+    
+    if Robo1.in_narrow_path and list_of_robots_in_visible_range_R1:
+        max_priority = max([priority_dict[robot_id] for robot_id in list_of_robots_in_visible_range_R1.keys()])
+        if Robo1.priority < max_priority:  # Lower priority - need to backtrack
+            next_pos = Robot_details[Robo1.robot_id]["Robot_object"].narrow_path_backtrack(
+                Robot_details[Robo1.robot_id]["Current_position"],
+                list_of_robots_in_avoidance_range=list_of_robots_in_visible_range_R1,
+                priority_dict=priority_dict
+            )
+            # Append to path instead of modifying frame+1
+            Robot_details[Robo1.robot_id]["Robot_path"].append(frame + 1, next_pos)
+        else:
+            # Higher priority - continue on path
+            if frame + 1 < len(Robot_details[Robo1.robot_id]["Robot_path"]):
+                Robot_details[Robo1.robot_id]["Robot_path"].append(
+                    Robot_details[Robo1.robot_id]["Robot_path"][frame + 1]
+                )
+    else:
+        # Not in narrow path - follow global path
+        if frame + 1 < len(Robo1.global_path):
+            Robot_details[Robo1.robot_id]["Robot_path"].append(Robo1.global_path[frame + 1])
+    
+    # Check R2's narrow path status
+    if frame + 1 < len(Robot_details[Robo2.robot_id]["Robot_path"]):
+        Robo2.narrow_path_detector(
+            Robo2.robot_id, 
+            Robot_details[Robo2.robot_id]["Robot_path"][frame],
+            Robot_details[Robo2.robot_id]["Robot_path"][frame+1]
         )
-        Robot_details[Robo3.robot_id]["Current_position"] = move_robot(
-            Robo3.robot_id,
-            Robo3.global_path, 
-            Robot_details[Robo3.robot_id]["Current_position"], 
-            r3, label3, trail3_x, trail3_y,
-            # Robot_details[Robo3.robot_id]["actual_path_frame_counter"]
+    
+    list_of_robots_in_visible_range_R2 = check_visible(
+        Robo2.robot_id, 
+        Robot_details[Robo2.robot_id]["Current_position"], 
+        {
+            Robo1.robot_id: Robot_details[Robo1.robot_id]["Current_position"],
+            Robo3.robot_id: Robot_details[Robo3.robot_id]["Current_position"]
+        }
+    )
+    
+    if Robo2.in_narrow_path and list_of_robots_in_visible_range_R2:
+        max_priority = max([priority_dict[robot_id] for robot_id in list_of_robots_in_visible_range_R2.keys()])
+        if Robo2.priority < max_priority:
+            next_pos = Robot_details[Robo2.robot_id]["Robot_object"].narrow_path_backtrack(
+                Robot_details[Robo2.robot_id]["Current_position"],
+                list_of_robots_in_avoidance_range=list_of_robots_in_visible_range_R2,
+                priority_dict=priority_dict
+            )
+            Robot_details[Robo2.robot_id]["Robot_path"].append(next_pos)
+        else:
+            if frame + 1 < len(Robot_details[Robo2.robot_id]["Robot_path"]):
+                Robot_details[Robo2.robot_id]["Robot_path"].append(
+                    Robot_details[Robo2.robot_id]["Robot_path"][frame + 1]
+                )
+    else:
+        if frame + 1 < len(Robo2.global_path):
+            Robot_details[Robo2.robot_id]["Robot_path"].append(Robo2.global_path[frame + 1])
+
+    if frame + 1 < len(Robot_details[Robo3.robot_id]["Robot_path"]):
+        Robo3.narrow_path_detector(
+            Robo3.robot_id, 
+            Robot_details[Robo3.robot_id]["Robot_path"][frame],
+            Robot_details[Robo3.robot_id]["Robot_path"][frame+1]
         )
+    
+    # Check if R1 needs to modify next position
+    list_of_robots_in_visible_range_R3 = check_visible(
+        Robo3.robot_id, 
+        Robot_details[Robo3.robot_id]["Current_position"], 
+        {
+            Robo1.robot_id: Robot_details[Robo1.robot_id]["Current_position"],
+            Robo2.robot_id: Robot_details[Robo2.robot_id]["Current_position"]
+        }
+    )
+    
+    if Robo3.in_narrow_path and list_of_robots_in_visible_range_R3:
+        max_priority = max([priority_dict[robot_id] for robot_id in list_of_robots_in_visible_range_R3.keys()])
+        if Robo3.priority < max_priority:  # Lower priority - need to backtrack
+            next_pos = Robot_details[Robo3.robot_id]["Robot_object"].narrow_path_backtrack(
+                Robot_details[Robo3.robot_id]["Current_position"],
+                list_of_robots_in_avoidance_range=list_of_robots_in_visible_range_R3,
+                priority_dict=priority_dict
+            )
+            # Append to path instead of modifying frame+1
+            Robot_details[Robo3.robot_id]["Robot_path"].append(frame + 1, next_pos)
+        else:
+            # Higher priority - continue on path
+            if frame + 1 < len(Robot_details[Robo3.robot_id]["Robot_path"]):
+                Robot_details[Robo3.robot_id]["Robot_path"].append(
+                    Robot_details[Robo3.robot_id]["Robot_path"][frame + 1]
+                )
+    else:
+        # Not in narrow path - follow global path
+        if frame + 1 < len(Robo3.global_path):
+            Robot_details[Robo3.robot_id]["Robot_path"].append(Robo3.global_path[frame + 1])
+    
 
-        trail1.set_data(trail1_x, trail1_y)
-        trail2.set_data(trail2_x, trail2_y)
-        trail3.set_data(trail3_x, trail3_y)
+    # STEP 2: MOVE ROBOTS (after computing positions)
+    Robot_details[Robo1.robot_id]["Current_position"] = move_robot(
+        Robo1.robot_id,
+        Robot_details[Robo1.robot_id]["Robot_path"], 
+        Robot_details[Robo1.robot_id]["Current_position"], 
+        r1, label1, trail1_x, trail1_y
+    )
+    
+    Robot_details[Robo2.robot_id]["Current_position"] = move_robot(
+        Robo2.robot_id,
+        Robot_details[Robo2.robot_id]["Robot_path"], 
+        Robot_details[Robo2.robot_id]["Current_position"], 
+        r2, label2, trail2_x, trail2_y
+    )
 
-        Robot_details[Robo1.robot_id]["Narrow_path_status"] = Robo1.narrow_path_detector(Robo1.robot_id,Robo1.global_path[frame],Robo1.global_path[frame+1])
-        Robot_details[Robo2.robot_id]["Narrow_path_status"] = Robo2.narrow_path_detector(Robo2.robot_id,Robo2.global_path[frame],Robo2.global_path[frame+1])
-        Robot_details[Robo3.robot_id]["Narrow_path_status"] = Robo3.narrow_path_detector(Robo3.robot_id,Robo3.global_path[frame],Robo3.global_path[frame+1])
+    Robot_details[Robo3.robot_id]["Current_position"] = move_robot(
+        Robo3.robot_id,
+        Robot_details[Robo3.robot_id]["Robot_path"], 
+        Robot_details[Robo3.robot_id]["Current_position"], 
+        r3, label3, trail3_x, trail3_y
+    )
+
+    for name1 in list(Robot_details.keys()):
+        for name2 in list(Robot_details.keys()):
+            if name1 == name2:
+                continue
+            if actual_paths[name1][-1] == actual_paths[name2][-1]:
+                if not Robot_details[name1]["Robot_object"].priority_resolution(name1,priority_dict[name1] , name2,priority_dict[name2]):
+                    actual_paths[name1][-1] = actual_paths[name1][-2]
 
 
-                 
+    # STEP 3: UPDATE TRAILS
+    trail1.set_data(trail1_x, trail1_y)
+    trail2.set_data(trail2_x, trail2_y)
+    trail3.set_data(trail3_x, trail3_y)
 
     print("*"*25)
-
     return r1, r2, r3, label1, label2, label3, trail1, trail2, trail3
 
 

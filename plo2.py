@@ -15,9 +15,9 @@ obstacle_manager = ObstacleMapManager(
 obstacles = set(obstacle_manager.get_obstacles())
 
 # ----- ROBOT SETUP -----
-Robo1 = custom_algo(robot_id='R_1', start=(20, 20), goal=(40, 40), obstacles=obstacles)
-Robo2 = custom_algo(robot_id='R_2', start=(40, 40), goal=(20, 20), obstacles=obstacles)
-Robo3 = custom_algo(robot_id='R_3', start=(20, 40), goal=(40, 20), obstacles=obstacles)
+Robo1 = custom_algo(robot_id='R_1', start=(17, 15), goal=(45, 45), obstacles=obstacles)
+Robo2 = custom_algo(robot_id='R_2', start=(12, 42), goal=(42, 12), obstacles=obstacles)
+Robo3 = custom_algo(robot_id='R_3', start=(17, 42), goal=(42, 17), obstacles=obstacles)
 
 Robot_details = {
     Robo1.robot_id: {

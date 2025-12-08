@@ -18,7 +18,6 @@ DIR_ANGLES = [0, 45, 90, 135, 180, -135, -90, -45]
 
 
 
-
 class custom_algo:
     def __init__(self, robot_id , start , goal, obstacles: set):
         self.robot_id = robot_id
@@ -30,6 +29,8 @@ class custom_algo:
         self.reached_goal = False
         self.in_narrow_path = False
         self.priority = 0
+        self.backtrack_point = None
+        self.backtrack_path = []
         self.set_priority(robot_id)
 
     def set_priority(self,robot_id):
@@ -80,29 +81,33 @@ class custom_algo:
                     neighbors.append((new_x, new_y))
 
         return neighbors
-    
-    def is_valid_position_for_obstacle_APF(self, x, y, obstacles, grid_size, robot_size=1 ,):
-        for dx in range(-2,3):
-            for dy in range(-2,3):
-                px, py = x + dx, y + dy
-                if not (0 <= px < grid_size and 0 <= py < grid_size):
+
+    def is_valid_position_for_robots_priority(
+        self, x, y, grid_size,
+        list_of_robots_in_avoidance_range,
+        priority_dict):
+
+        # Loop through robots in sensing area
+        for name, (rx, ry) in list_of_robots_in_avoidance_range.items():
+            if (rx, ry) == (x, y):
+                # If robot has higher priority → block
+                if priority_dict.get(name, 0) > self.priority:
                     return False
-                if (px, py) in obstacles:
-                    return False
+                # If lower priority → ALLOW cell
+                else:
+                    return True
+
         return True
     
-    def is_valid_position_for_robots(self, x, y, grid_size, robot_size=1, list_of_robots_in_avoidance_range : dict = {}):
-        for dx in range(-1,2):
-            for dy in range(-1,2):
-                px, py = x + dx, y + dy
-                if not (0 <= px < grid_size and 0 <= py < grid_size):
-                    return False
-                for robot_pos in list_of_robots_in_avoidance_range.values():
-                    if (px, py) == robot_pos:
-                        return False
+    def is_valid_from_list(self, x, y, grid_size,
+        current_and_future : list = []):
+
+        for (rx, ry) in current_and_future:
+            if (rx, ry) == (x, y):
+                return False
         return True
-    
-    def get_neighbors_for_APF(self, pos, obstacles, grid_size, priority_dict, list_of_robots_in_avoidance_range : dict = {}):
+
+    def get_neighbors_for_APF(self, pos, obstacles, grid_size, list_of_robots_in_avoidance_range : dict = {}, priority_dict : dict = {}):
         x, y = pos
         neighbors = []
 
@@ -116,8 +121,31 @@ class custom_algo:
                 if not self.is_valid_position_for_obstacle(new_x, new_y, obstacles, grid_size):
                     continue
 
-                if not self.is_valid_position_for_robots(new_x, new_y, grid_size, list_of_robots_in_avoidance_range=list_of_robots_in_avoidance_range):
+                if not self.is_valid_position_for_robots_priority(new_x, new_y, grid_size, list_of_robots_in_avoidance_range=list_of_robots_in_avoidance_range, priority_dict=priority_dict): #
                     continue 
+        
+                else:
+                    neighbors.append((new_x, new_y))
+
+        return neighbors
+    
+    def get_neighbors_for_2nd_resolution(self, pos, obstacles, grid_size, info_dict : dict = {}):
+        x, y = pos
+        neighbors = []
+        future_and_current_positions = [v[0] for v in info_dict.values()] + [v[1] for v in info_dict.values()]
+
+        for dx in range(-1,2):
+            for dy in range(-1,2):
+                if dx == 0 and dy == 0:
+                    continue
+
+                new_x, new_y = x + dx, y + dy
+
+                if not self.is_valid_position_for_obstacle(new_x, new_y, obstacles, grid_size):
+                    continue
+
+                if not self.is_valid_from_list(new_x, new_y, grid_size, future_and_current_positions):
+                    continue
         
                 else:
                     neighbors.append((new_x, new_y))
@@ -160,76 +188,59 @@ class custom_algo:
 
     def simple_apf_choose_next(self, pos, goal, obstacles, list_of_robots_in_avoidance_range : dict = {}, priority_dict : dict = {}):
         """
-        Higher priority robots ignore lower priority ones (no repulsion)
-        Lower priority robots avoid ALL other robots
+        Simple APF that applies attraction toward goal and repulsion from nearby robots.
+        Rounds to nearest available 45° neighbor direction.
         """
-        neighbours = self.get_neighbors_for_APF(pos, obstacles, grid_size=55 ,list_of_robots_in_avoidance_range=list_of_robots_in_avoidance_range, priority_dict=priority_dict)
-
-        if neighbours == []:
-            return pos
-
         pos = np.array(pos, dtype=float)
         goal = np.array(goal, dtype=float)
-
-        # Attractive force: simple linear pull
+        
+        # Get valid neighbors
+        neighbours = self.get_neighbors_for_APF(pos, obstacles, grid_size=55,
+                                            list_of_robots_in_avoidance_range=list_of_robots_in_avoidance_range)
+        
+        
+        
+        if not neighbours:
+            return tuple(pos.astype(int)) # No valid moves, Hold position
+        
+        # Attractive force toward goal
         F_att = (goal - pos)
-
-        # Repulsive force
+        
+        # Repulsive force from nearby robots
         F_rep = np.zeros(2, dtype=float)
         rep_radius = 4.0
         k_rep = 50.0
 
-        # # Always repel from static obstacles
-        # for ox, oy in obstacles:
-        #     obs = np.array([ox, oy], dtype=float)
-        #     dvec = pos - obs
-        #     dist = np.linalg.norm(dvec)
-        #     if dist < 1e-6:
-        #         continue
-        #     if dist <= rep_radius:
-        #         F_rep += k_rep * (1.0 / (dist**2)) * (dvec / dist)
-
-        # Find the highest priority robot in avoidance range (excluding self)
-        robots_to_consider = {rname: rpos for rname, rpos in list_of_robots_in_avoidance_range.items() 
-                            if priority_dict.get(rname, 0) > self.priority}
-    
-            
-        if robots_to_consider:
-        # Get the robot with HIGHEST priority (maximum value)
-            highest_priority_robot = max(robots_to_consider.keys(), key=lambda r: priority_dict[r])
-            
-            # Only apply repulsion from this ONE robot
-            rx, ry = robots_to_consider[highest_priority_robot]
+        higher_robots = {rname: rpos for rname, rpos in list_of_robots_in_avoidance_range.items() 
+                        if priority_dict.get(rname, 0) > self.priority}
+        
+        for robot_name, (rx, ry) in higher_robots.items():
             rob = np.array([rx, ry], dtype=float)
             dvec = pos - rob
             dist = np.linalg.norm(dvec)
+            
             if dist >= 1e-6 and dist <= rep_radius:
                 F_rep += k_rep * (1.0 / (dist**2)) * (dvec / dist)
-
+        
         # Total force
         F = F_att + F_rep
-
-        # Angle of resultant force
         angle = math.degrees(math.atan2(F[1], F[0]))
-
+        
         # Find nearest 45° direction
         best_idx = min(range(8), key=lambda i: abs(angle - DIR_ANGLES[i]))
         chosen_dir = DIRS[best_idx]
-
-        # Convert selected direction to actual neighbor
+        
         dx, dy = chosen_dir
         final_pos = (int(pos[0] + dx), int(pos[1] + dy))
-
-        # If that neighbor is not available, fallback to nearest available one
+        
+        # If chosen direction not available, pick nearest available neighbor
         if final_pos not in neighbours:
             def angle_to(npos):
                 vec = np.array(npos) - pos
                 return math.degrees(math.atan2(vec[1], vec[0]))
-
-            best_nb = min(neighbours, key=lambda n: abs(angle - angle_to(n)))
-            return best_nb
-
-        return final_pos
+            final_pos = min(neighbours, key=lambda n: abs(angle - angle_to(n)))
+        
+        return (int(final_pos[0]), int(final_pos[1]))
     
     def priority_resolution(self, name, p1 , other_name, p2):
 
@@ -297,3 +308,80 @@ class custom_algo:
         return False
 
             
+    def get_neighbors_for_narrow_path_APF(self, pos, obstacles, grid_size):
+        x, y = pos
+        neighbors = []
+
+        for dx in range(-1,2):
+            for dy in range(-1,2):
+                if dx == 0 and dy == 0:
+                    continue
+
+                new_x, new_y = x + dx, y + dy
+
+                if not self.is_valid_position_for_obstacle(new_x, new_y, obstacles, grid_size):
+                    continue 
+        
+                else:
+                    neighbors.append((new_x, new_y))
+
+        return neighbors
+    
+    def narrow_path_apf_choose_next(self, pos, obstacles, list_of_robots_in_avoidance_range : dict = {}, priority_dict : dict = {}):
+        """
+        LIFO backtracking in narrow paths - robots maintain single-file retreat
+        """
+        neighbours = self.get_neighbors_for_narrow_path_APF(pos, obstacles, grid_size=55)
+
+        if neighbours == []:
+            return pos
+
+        pos = np.array(pos, dtype=float)
+
+        # Repulsive force
+        F_rep = np.zeros(2, dtype=float)
+        rep_radius = 4.0
+        k_rep = 50.0
+
+        # Apply repulsion from ALL robots with higher priority
+        # This ensures stacked backtracking (LIFO)
+        robots_to_avoid = {rname: rpos for rname, rpos in list_of_robots_in_avoidance_range.items() 
+                        if priority_dict.get(rname, 0) > self.priority}
+        
+        for robot_name, (rx, ry) in robots_to_avoid.items():
+            rob = np.array([rx, ry], dtype=float)
+            dvec = pos - rob
+            dist = np.linalg.norm(dvec)
+            if dist >= 1e-6 and dist <= rep_radius:
+                F_rep += k_rep * (1.0 / (dist**2)) * (dvec / dist)
+
+        # If no repulsion force (no higher priority robots), stay put
+        if np.linalg.norm(F_rep) < 1e-6:
+            return tuple(pos.astype(int))
+
+        # Total force (pure repulsion for backtracking)
+        F = F_rep
+
+        # Angle of resultant force
+        angle = math.degrees(math.atan2(F[1], F[0]))
+
+        # Find nearest 45° direction
+        best_idx = min(range(8), key=lambda i: abs(angle - DIR_ANGLES[i]))
+        chosen_dir = DIRS[best_idx]
+
+        # Convert selected direction to actual neighbor
+        dx, dy = chosen_dir
+        final_pos = (int(pos[0] + dx), int(pos[1] + dy))
+
+        # If that neighbor is not available, fallback to nearest available one
+        if final_pos not in neighbours:
+            def angle_to(npos):
+                vec = np.array(npos) - pos
+                return math.degrees(math.atan2(vec[1], vec[0]))
+
+            best_nb = min(neighbours, key=lambda n: abs(angle - angle_to(n)))
+            return best_nb
+
+        return final_pos
+
+    

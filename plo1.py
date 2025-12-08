@@ -141,7 +141,7 @@ def update(frame):
                 list_of_robots_in_avoidance_range=avoidable,
                 priority_dict=priority_dict
             )
-            Insert next APF step
+            #Insert next APF step
             if frame + 1 < len(path):
                 path.insert(frame + 1, next_pos)    
             else:

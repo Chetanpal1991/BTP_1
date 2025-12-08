@@ -1,3 +1,5 @@
-i = int(input("Enter the number of robots: "))
+robot_size=1
 
-l = [j for ]
+for dx in range(-1,2):
+    for dy in range(-1,2):
+        print(dx, dy)
